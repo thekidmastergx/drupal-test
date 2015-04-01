@@ -1,0 +1,55 @@
+<?php
+/**
+* Display help and module information
+* @param path which path of the site we're displaying help
+* @param arg array that holds the current path as would be returned from arg() function
+* @return help text for the path
+*/
+function sfafeeds_help($path, $arg) {
+  $output = '';  //declare your output variable
+  switch ($path) {
+    case "admin/help#sfafeeds":
+    $output = '<p>'.  t("Takes feeds from services and pools it into Content") .'</p>';
+    break;
+  }
+  return $output;
+} // function sfafeeds_help
+
+function sfafeeds_perm() {
+  return array('access sfafeeds', 'create sfafeeds', 'administer sfafeeds');
+} // function sfafeeds_perm
+
+function sfafeeds_menu() {
+  $items['sfafeeds'] = array(
+    'title' => 'Add Lorem',
+    'page callback' => 'sfafeeds_lorem',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $items;
+}
+
+function sfafeeds_lorem(){
+  $node = new stdClass();
+
+  //Main Node Fields
+  $node->name = "Title";
+  $node->title = $node->name;
+  $node->body = "Lorem Ipsum";
+  $node->type = 'page'; //This can be any node type
+  $node->created = time();
+  $node->changed = $node->created;
+  $node->promote = 1; // Display on front page ? 1 : 0
+  $node->sticky = 0;  // Display top of page ? 1 : 0
+  $node->format = 2;  // 1:Filtered HTML, 2: Full HTML
+  $node->status = 1   // Published ? 1 : 0
+  $node->language = 'en';
+
+  if ($node = node_submit($node)) {
+    node_save($node);
+
+    drupal_set_message(t("Node ".$node->title." added correctly"));
+  } else {
+    drupal_set_message(t("Node ".$node->title." added incorrectly"), "error");
+  }
+}

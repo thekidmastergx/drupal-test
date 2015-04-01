@@ -1,0 +1,3 @@
+name = SFA Feeds
+description = Takes feeds from services and pools it into Content
+core = 6.x
