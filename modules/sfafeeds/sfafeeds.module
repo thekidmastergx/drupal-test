@@ -17,26 +17,6 @@ function sfafeeds_block($op = 'list', $delta = 0) {
 }
 
 function sfafeeds_cron(){
-  $node = new stdClass();
+    drupal_set_message(t(" SFA HELP "));
 
-  //Main Node Fields
-  $node->name = "Agra";
-  $node->title = $node->name;
-  $node->body = "Lorem <h4>Ipsum</h4>";
-  $node->type = 'story'; //This can be any node type
-  $node->created = time();
-  $node->changed = $node->created;
-  $node->promote = 1; // Display on front page ? 1 : 0
-  $node->sticky = 0;  // Display top of page ? 1 : 0
-  $node->format = 2;  // 1:Filtered HTML, 2: Full HTML
-  $node->status = 1   // Published ? 1 : 0
-  $node->language = 'en';
-
-  if ($node = node_submit($node)) {
-    node_save($node);
-
-    drupal_set_message(t("Node ".$node->title." added correctly"));
-  } else {
-    drupal_set_message(t("Node ".$node->title." added incorrectly"), "error");
-  }
 }
