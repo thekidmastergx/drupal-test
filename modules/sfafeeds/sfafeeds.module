@@ -16,3 +16,13 @@ function sfafeeds_block($op = 'list', $delta = 0) {
   }
   return $block;
 }
+
+function sfafeeds_menu() {
+  $items['sfa/doom'] = array(
+    'page callback' => 'sfafeeds_fb',
+  )
+}
+
+function sfafeeds_fb() {
+  return "Facebook!";
+}
