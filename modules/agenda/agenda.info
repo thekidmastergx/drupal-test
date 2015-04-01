@@ -1,0 +1,11 @@
+name = Agenda
+description = Show an agenda of events from a remote source
+core = 6.x
+dependencies[] = libraries
+
+; Information added by Drupal.org packaging script on 2015-02-21
+version = "6.x-2.0-beta1"
+core = "6.x"
+project = "agenda"
+datestamp = "1424494982"
+
