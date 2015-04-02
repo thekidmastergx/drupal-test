@@ -1,0 +1,11 @@
+$Id: TODO.txt,v 1.1 2010/08/02 17:38:14 serbanghita Exp $
+
+Flickr feeds
+------------
+http://www.flickr.com/groups/craiova/pool/
+http://api.flickr.com/services/feeds/groups_pool.gne?id=34047087@N00&lang=en-us&format=rss_200
+
+Picasa feeds
+------------
+http://picasaweb.google.com/zamolxero/PozeOras
+http://picasaweb.google.com/data/feed/base/user/zamolxero/albumid/5356442231729869793?alt=rss&kind=photo&hl=en_US

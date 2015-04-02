@@ -1,0 +1,2055 @@
+<?php
+// $Id: feeds_social.install,v 1.6 2011/02/13 19:21:21 serbanghita Exp $
+
+/**
+ * @file
+ * Install hooks.
+ */
+
+  function _taxonomy_get_terms($arr=array()){
+
+      $query = "
+      SELECT
+            t.tid,
+            t.*
+      FROM {term_data} t
+      WHERE 1
+      ";
+      if(!empty($arr['name'])){
+        $query .= " AND LOWER(t.name) = LOWER('%s') ";
+      }
+      if((int)$arr['vid']>0){
+        $query .= " AND t.vid = %d ";
+      }
+
+      $db_result = db_query(db_rewrite_sql($query, 't', 'tid'), trim($arr['name']), (int)$arr['vid']);
+      $result = array();
+      while ($term = db_fetch_object($db_result)) {
+        $result[] = $term;
+      }
+
+      return $result;
+  }
+
+/**
+ *
+ * @param array $arr
+ * @param integer $arr['vid']
+ * @param string $arr['name']
+ * @param integer $arr['parent_id']
+ * @return integer $tid
+ */
+function _taxonomy_create_term($arr){
+
+  $terms = _taxonomy_get_terms($arr);
+
+  if((int)count($terms)==0){
+      $term = array(
+        'vid'       => $arr['vid'], // Vocabulary ID
+        'name'      => $arr['name'], // Term Name
+        'synonyms'  => '', // (Optional) Synonym of this term
+        'parent'    => (int)$arr['parent_id'], // (Optional) Term ID of a parent term
+        'relations' => array(), // (Optional) Related Term IDs
+      );
+
+      taxonomy_save_term($term);
+
+      $terms = _taxonomy_get_terms($arr);
+      $tid = $terms[0]->tid;
+
+  } else {
+      $tid = $terms[0]->tid;
+  }
+
+  return $tid;
+
+}
+
+function _taxonomy_get_vocabulary($arr=array()){
+    $query = "
+    SELECT
+            v.vid,
+            v.*
+    FROM {vocabulary} v
+    WHERE 1
+    AND v.name = '%s'
+    ";
+    $db_result = db_query(db_rewrite_sql($query, 'v', 'vid'), $arr['name']);
+    $result = db_fetch_object($db_result);
+    //dpm($arr, '$arr');
+    //dpm($result, '$result');
+
+    return $result;
+
+}
+
+function _taxonomy_get_vocabularies($arr=array()){
+
+    $query = "
+        SELECT
+                v.vid,
+                v.*, n.type
+        FROM {vocabulary} v
+        LEFT JOIN {vocabulary_node_types} n
+            ON v.vid = n.vid
+        WHERE 1
+        AND n.type = '%s'
+        ORDER BY v.weight, v.name";
+    $db_result = db_query(db_rewrite_sql($query, 'v', 'vid'), $arr['type']);
+    $result = array();
+    while ($vocabulary = db_fetch_object($db_result)) {
+      $result[] = $vocabulary;
+    }
+
+    return $result;
+
+}
+
+function _taxonomy_create_vocabulary($arr){
+
+    $vocabulary = array(
+      'name'        => t($arr['name']), //Human readable name of the vocabulary
+      'multiple'    => $arr['multiple'], //set 1 to allow multiple selection
+      'required'    => 0, //set 1 to make the terms mandatory to be selected
+      'hierarchy'   => $arr['hierarchy'], //set 1 to allow and create hierarchy of the terms within the vocabulary
+      'relations'   => 1, //set 1 to set and allow relation amongst multiple terms
+      'module'      => 'taxonomy', //provide the module name in which the vocabulary is defined and which is calling this function
+      'nodes'       => array('feed_item_'.$arr['parser_name'] => 1), //set the node to which this vocabulary will be attached to
+      'weight'      => -1, //set the weight to display the vocabulary in the list
+    );
+    taxonomy_save_vocabulary($vocabulary);
+    
+}
+
+
+/**
+ * Implementation of hook_install().
+ */
+function feeds_social_install() {
+
+        global $base_url;
+	// Set a flag to signal that we are in the process of installing the module.
+	// Certain things need to happen upon first install, but shouldn't happen
+	// until hook_enable.
+	//$GLOBALS['feeds_social_install_fields'] = TRUE;
+        //dpm('intra in '.__FUNCTION__);
+
+        // Set your module's weight to 11 or higher in the database. Views' weight is 10.
+        // http://views-help.doc.logrus.com/help/views/api-default-views
+        db_query("UPDATE {system} SET weight = 11 WHERE name = 'feeds_social'");
+
+
+        // Set all available parsers.
+        $parsers = array(
+                                'avangate_affiliate'    => array('install_status' => 0, 'name' => 'Avangate.com Affiliate', 'vocabularies' => array(
+                                                                                                                                                    'Vendor' => array('id' => 0, 'multiple' => 0, 'hierarchy' => 0),
+                                                                                                                                                    'Category' => array('id' => 0, 'multiple' => 1, 'hierarchy' => 1),
+                                                                                                                                                    'Platforms' => array('id' => 0,'multiple' => 1, 'hierarchy' => 0)
+                                                                                                                                                    )),
+                                'twitter_search'        => array('install_status' => 0, 'name' => 'Twitter.com Search'),
+                                'facebook_links'        => array('install_status' => 0, 'name' => 'Facebook.com Links')
+                            );
+        variable_set('feeds_social_parsers', $parsers);
+
+        drupal_set_message('<b>Social Parsers for Feeds</b> was succesfuly installed. Now <a href="'.$base_url.'/admin/settings/feeds_social">let\'s configure</a> the settings.');
+        
+}
+
+/**
+ * Implementation of hook_enable().
+ */
+function feeds_social_enable() {
+  //dpm('Enter in '.__FUNCTION__);
+}
+
+/**
+ * Implementation of hook_uninstall();
+ */
+function feeds_social_uninstall() {
+
+  //dpm('Enter in '.__FUNCTION__);
+
+  // Get all available parsers.
+  $parsers = variable_get('feeds_social_parsers', array());
+  
+  foreach($parsers as $parser_ => $info_){
+        _uninstall_parser($parser_);
+  }
+
+  variable_del('feeds_social_parsers');
+
+}
+
+
+/**
+ * Custom function that installs a parser (node_type, nodes, custom fields)
+ *
+ * @param string $parser_name
+ */
+function _install_parser($parser_name){
+
+  global $base_url;
+  $parsers = variable_get('feeds_social_parsers', array());
+  cache_clear_all('plugins:feeds:plugins', 'cache');
+
+  //dpm('Install '.$parser_name.' parser + nodes + taxonomy.');
+
+  $items['feed_'.$parser_name] = array(
+    'name' => t('Feed ('.$parsers[$parser_name]['name'].')'),
+    'module' => 'node',
+    'description' => t(''),
+    'help' => t(''),
+    'has_title' => TRUE,
+    'title_label' => t('Title'),
+    'has_body' => FALSE,
+    'body_label' => t('Body'),
+    'locked' => TRUE,
+    'type' => 'feed_'.$parser_name
+  );
+  $items['feed_item_'.$parser_name] = array(
+    'name' => t('Feed item ('.$parsers[$parser_name]['name'].')'),
+    'module' => 'node',
+    'description' => t(''),
+    'help' => t(''),
+    'has_title' => TRUE,
+    'title_label' => t('Title'),
+    'has_body' => TRUE,
+    'body_label' => t('Body'),
+    'locked' => TRUE,
+    'type' => 'feed_item_'.$parser_name
+  );
+
+  foreach($items as $id_ => $type) {
+      $type = (object)_node_type_set_defaults($type);
+      node_type_save($type);
+  }
+
+  $tmp_func_ = 'feeds_social_feed_item_'.$parser_name.'_field_list';
+  feeds_social_install_fields('feed_item_'.$parser_name, $tmp_func_());
+
+  // Install Taxonomy Vocabularies related to the Node Type.
+  if((int)count($parsers[$parser_name]['vocabularies'])>0){
+      foreach($parsers[$parser_name]['vocabularies'] as $v_name => $v_info){
+          _taxonomy_create_vocabulary(array(
+                                            'name'          => $v_name,
+                                            'multiple'      => $v_info['multiple'],
+                                            'hierarchy'     => $v_info['hierarchy'],
+                                            'parser_name'   => $parser_name
+                                        ));
+          $vocabulary = _taxonomy_get_vocabulary(array('name' => $v_name, 'parser_name' => $parser_name));
+          //dpm($vocabulary, '$vocabulary');
+          $parsers[$parser_name]['vocabularies'][$v_name]['id'] = (int)$vocabulary->vid;
+      }
+  }
+
+  $parsers[$parser_name]['install_status'] = 1;
+  variable_set('feeds_social_parsers', $parsers);
+
+  //node_types_rebuild();
+  module_rebuild_cache();
+  feeds_cache_clear(true);
+  //clear the cache to display in Feeds as available plugin.
+
+  drupal_set_message('Parser <strong>'.$parser_name.'</strong> was installed. Go and <a href="'.$base_url.'/import">start importing</a> your feeds.');
+
+}
+
+/**
+ * Custom function that uninstalls a parser (node_type, nodes, custom fields)
+ *
+ * @param string $parser_name
+ */
+function _uninstall_parser($parser_name){
+
+    //dpm('Uninstall '.$parser_name);
+
+      $parsers = variable_get('feeds_social_parsers', array());
+
+      // Remove the programatically created node type and all associated nodes.
+      $nodes = db_query("SELECT nid FROM {node} WHERE type = 'feed_".$parser_name."' OR type = 'feed_item_".$parser_name."'");
+      while ($node = db_fetch_object($nodes)) {
+        node_delete($node->nid);
+      }
+
+      // Uninstall custom fields.
+      $tmp_func_ = 'feeds_social_feed_item_'.$parser_name.'_field_list';
+      feeds_social_uninstall_fields('feed_item_'.$parser_name, $tmp_func_());
+
+      // Uninstall node types.
+      node_type_delete('feed_'.$parser_name);
+      node_type_delete('feed_item_'.$parser_name);
+
+      // Uninstall vocabularies.
+      if((int)count($parsers[$parser_name]['vocabularies'])>0){
+          foreach($parsers[$parser_name]['vocabularies'] as $v_name => $v_info){
+              if((int)$v_info['id']>0){
+                  taxonomy_del_vocabulary((int)$v_info['id']);
+                  $parsers[$parser_name]['vocabularies'][$v_name]['id'] = 0;
+              }
+          }
+      }
+
+      $parsers[$parser_name]['install_status'] = 0;
+      variable_set('feeds_social_parsers', $parsers);
+
+      feeds_cache_clear(true);
+
+      drupal_set_message('Parser <strong>'.$parser_name.'</strong> was uninstalled.');
+
+}
+
+
+/*
+ * Exported CCK fields for 'feed_item_twitter_search'
+ */
+function feeds_social_feed_item_twitter_search_field_list() {
+	$fields = array();
+
+$fields  = array (
+  0 =>
+  array (
+    'label' => 'Author name',
+    'field_name' => 'field_twitter_author_name',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '31',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_twitter_author_name][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' => NULL,
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'token' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  1 =>
+  array (
+    'label' => 'Author profile path',
+    'field_name' => 'field_author_link',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '32',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_author_link][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_author_link' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_author_link][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'token' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  2 =>
+  array (
+    'label' => 'Author avatar path',
+    'field_name' => 'field_author_img',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '33',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_author_img][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_author_img' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_author_img][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'token' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  3 =>
+  array (
+    'label' => 'Tweet URL',
+    'field_name' => 'field_tweet_url',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '34',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_tweet_url][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_tweet_url' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_tweet_url][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'token' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  4 =>
+  array (
+    'label' => 'Geo Point',
+    'field_name' => 'field_twitter_geopoint',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '38',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_twitter_geopoint][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_twitter_geopoint' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_twitter_geopoint][0][value',
+        ),
+      ),
+    ),
+    'group' => 'group_geolocation',
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  5 =>
+  array (
+    'label' => 'Location Point',
+    'field_name' => 'field_twitter_loc_point',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '39',
+    'rows' => 5,
+    'size' => '60',
+    'description' => 'This is an id like <b>dec038a8feaf3592</b>',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_twitter_loc_point][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_twitter_loc_point' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_twitter_loc_point][0][value',
+        ),
+      ),
+    ),
+    'group' => 'group_geolocation',
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  6 =>
+  array (
+    'label' => 'Location Name',
+    'field_name' => 'field_twitter_loc_fullname',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '40',
+    'rows' => 5,
+    'size' => '60',
+    'description' => 'Take the location of the tweet <b>Friedrichshain, Berlin</b>',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_twitter_loc_fullname][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_twitter_loc_fullname' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_twitter_loc_fullname][0][value',
+        ),
+      ),
+    ),
+    'group' => 'group_geolocation',
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  7 =>
+  array (
+    'label' => 'Location Type',
+    'field_name' => 'field_twitter_loc_type',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '41',
+    'rows' => 5,
+    'size' => '20',
+    'description' => 'Location type. Eg. <b>neighborhood</b>',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_twitter_loc_type][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_twitter_loc_type' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_twitter_loc_type][0][value',
+        ),
+      ),
+    ),
+    'group' => 'group_geolocation',
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  8 =>
+  array (
+    'label' => 'Tweet Source',
+    'field_name' => 'field_twitter_source',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '42',
+    'rows' => 5,
+    'size' => '160',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_twitter_source][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_twitter_source' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_twitter_source][0][value',
+          'format' => 1,
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '1',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+      'format' =>
+      array (
+        'type' => 'int',
+        'unsigned' => true,
+        'not null' => false,
+        'views' => false,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+);
+
+
+	return $fields;
+}
+
+/*
+ * Exported CCK fields for 'feed_item_facebook_links'
+ */
+function feeds_social_feed_item_facebook_links_field_list() {
+	
+$fields  = array (
+  0 =>
+  array (
+    'label' => 'Facebook Link Author',
+    'field_name' => 'field_facebook_author',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '31',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_facebook_author][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' => NULL,
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  1 =>
+  array (
+    'label' => 'Facebook Link',
+    'field_name' => 'field_facebook_link',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '32',
+    'rows' => 5,
+    'size' => '300',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_facebook_link][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_facebook_link' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_facebook_link][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+);
+
+
+return $fields;
+	
+}
+
+/*
+ * Exported CCK fields for 'feed_item_avangate_affiliate'
+ */
+function feeds_social_feed_item_avangate_affiliate_field_list(){
+$fields  = array (
+  0 =>
+  array (
+    'label' => 'Version',
+    'field_name' => 'field_product_version',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '-1',
+    'rows' => 5,
+    'size' => '60',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_version][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' => NULL,
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  1 =>
+  array (
+    'label' => 'Short Description',
+    'field_name' => 'field_product_shortdescription',
+    'type' => 'text',
+    'widget_type' => 'text_textarea',
+    'change' => 'Change basic information',
+    'weight' => 0,
+    'rows' => '5',
+    'size' => 60,
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_shortdescription][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_shortdescription' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_shortdescription][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  2 =>
+  array (
+    'label' => 'Currency',
+    'field_name' => 'field_product_currency',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '2',
+    'rows' => 5,
+    'size' => '10',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_currency][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_currency' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_currency][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  3 =>
+  array (
+    'label' => 'Price',
+    'field_name' => 'field_product_price',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '3',
+    'rows' => 5,
+    'size' => '10',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_price][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_price' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_price][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  4 =>
+  array (
+    'label' => 'Commission Type',
+    'field_name' => 'field_product_commissiontype',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '4',
+    'rows' => 5,
+    'size' => '20',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_commissiontype][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_commissiontype' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_commissiontype][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  5 =>
+  array (
+    'label' => 'Commission',
+    'field_name' => 'field_product_commission',
+    'type' => 'number_integer',
+    'widget_type' => 'number',
+    'change' => 'Change basic information',
+    'weight' => '5',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_commission][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_commission' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_commission][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'min' => '',
+    'max' => '',
+    'prefix' => '',
+    'suffix' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'number',
+    'widget_module' => 'number',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'int',
+        'not null' => false,
+        'sortable' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  6 =>
+  array (
+    'label' => 'Affiliate Buy Link',
+    'field_name' => 'field_product_buy_url',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '6',
+    'rows' => 5,
+    'size' => '300',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_buy_url][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_buy_url' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_buy_url][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  7 =>
+  array (
+    'label' => 'Affiliate Trial Link',
+    'field_name' => 'field_product_trial_url',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '7',
+    'rows' => 5,
+    'size' => '300',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_trial_url][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_trial_url' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_trial_url][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  8 =>
+  array (
+    'label' => 'Small Thumbnail',
+    'field_name' => 'field_product_small_pic',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '8',
+    'rows' => 5,
+    'size' => '350',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_small_pic][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_small_pic' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_small_pic][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  9 =>
+  array (
+    'label' => 'Big Picture',
+    'field_name' => 'field_product_big_pic',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '9',
+    'rows' => 5,
+    'size' => '350',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_big_pic][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_big_pic' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_big_pic][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+  10 =>
+  array (
+    'label' => 'PAD Link',
+    'field_name' => 'field_product_pad_url',
+    'type' => 'text',
+    'widget_type' => 'text_textfield',
+    'change' => 'Change basic information',
+    'weight' => '10',
+    'rows' => 5,
+    'size' => '350',
+    'description' => '',
+    'default_value' =>
+    array (
+      0 =>
+      array (
+        'value' => '',
+        '_error_element' => 'default_value_widget][field_product_pad_url][0][value',
+      ),
+    ),
+    'default_value_php' => '',
+    'default_value_widget' =>
+    array (
+      'field_product_pad_url' =>
+      array (
+        0 =>
+        array (
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_product_pad_url][0][value',
+        ),
+      ),
+    ),
+    'group' => false,
+    'required' => 0,
+    'multiple' => '0',
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'op' => 'Save field settings',
+    'module' => 'text',
+    'widget_module' => 'text',
+    'columns' =>
+    array (
+      'value' =>
+      array (
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => false,
+        'sortable' => true,
+        'views' => true,
+      ),
+    ),
+    'display_settings' =>
+    array (
+      'label' =>
+      array (
+        'format' => 'above',
+        'exclude' => 0,
+      ),
+      'teaser' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      'full' =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+      4 =>
+      array (
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+  ),
+);
+
+return $fields;
+
+}
+
+/**
+ * Create field instances for a given node type.
+ *
+ * @param $node_type
+ *   The node type to attach the fields to.
+ * @param $field_list
+ *   An array of fields to create instances for.
+ * @see content_field_instance_create()
+ */
+function feeds_social_install_fields($node_type, $field_list) {
+  module_load_include('inc', 'content', 'includes/content.crud');
+
+  // We need to make sure we have all the latest CCK info.
+  content_clear_type_cache(TRUE);
+
+  // Actually create fields.
+  foreach ($field_list as $field) {
+    $field['type_name'] = $node_type;
+    content_field_instance_create($field, FALSE);
+  }
+
+  // Clear caches again so content type and fields are recognized.
+  content_clear_type_cache(TRUE);
+  menu_rebuild();
+}
+
+/**
+ * Delete field instances for a given node type.
+ *
+ * @param $node_type
+ *   The node type to delete the fields from.
+ * @param $field_list
+ *   An array of fields to delete.
+ * @see content_field_instance_delete()
+ */
+function feeds_social_uninstall_fields($node_type, $field_list) {
+  module_load_include('inc', 'content', 'includes/content.crud');
+
+  // We need to make sure we have all the latest CCK info.
+  content_clear_type_cache(TRUE);
+
+  // Actually remove fields.
+  foreach ($field_list as $field) {
+    content_field_instance_delete($field['field_name'], $node_type, FALSE);
+  }
+
+  // Clear caches again so content type and fields are recognized.
+  content_clear_type_cache(TRUE);
+}

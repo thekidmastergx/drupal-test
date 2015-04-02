@@ -1,0 +1,255 @@
+<?php
+// $Id: feeds_social.module,v 1.5 2011/02/13 19:21:21 serbanghita Exp $
+
+/**
+ * @file
+ * Default importer configurations for Feeds Social module.
+ */
+
+require_once(dirname(__FILE__) .'/feeds_social.install');
+require_once(dirname(__FILE__) .'/feeds_social.features.inc');
+require_once(dirname(__FILE__).'/views/feeds_social.views_default.inc');
+
+/**
+* Implementation of hook_feeds_plugins().
+ *
+ * sites/all/modules/feeds_social/parsers
+ * sites/all/modules/feeds_social/plugins
+*/
+function feeds_social_feeds_plugins() {
+  $info = array();
+  $parsers = variable_get('feeds_social_parsers', array());
+
+  //dpm('Enter in '.__FUNCTION__);
+
+  if($parsers['twitter_search']['install_status']==1){
+      // http://search.twitter.com/search.atom?q=craiova
+      $info['FeedsTwitterParser'] = array(
+        'name' => 'Twitter Search Parser',
+        'description' => 'Parses Twitter.com Search feeds.',
+        'handler' => array(
+          'parent' => 'FeedsParser', // A plugin needs to derive either directly or indirectly from FeedsFetcher, FeedsParser or FeedsProcessor.
+          'class' => 'FeedsTwitterParser',
+          'file' => 'FeedsTwitterParser.inc',
+          'path' => drupal_get_path('module', 'feeds_social').'/parsers',
+        ),
+      );
+  }
+
+  if($parsers['facebook_links']['install_status']==1){
+      // http://apps.facebook.com/feeds/share_posts.php?id=1133615313&viewer=1282112668&key=9363a00ee5&format=rss20
+      $info['FeedsFacebookParser'] = array(
+        'name' => 'Facebook Parser',
+        'description' => 'Parses Facebook Links feeds.',
+        'handler' => array(
+          'parent' => 'FeedsParser',
+          'class' => 'FeedsFacebookParser',
+          'file' => 'FeedsFacebookParser.inc',
+          'path' => drupal_get_path('module', 'feeds_social').'/parsers',
+        ),
+      );
+  }
+
+  if($parsers['avangate_affiliate']['install_status']==1){
+      // http://feeds.avangate.com/2880/21481_IZXOFK.xml.gz
+      $info['FeedsAvangateAffiliateParser'] = array(
+        'name' => 'Avangate Affiliate Parser',
+        'description' => 'Parses Avangate.com affiliate product feeds.',
+        'handler' => array(
+          'parent' => 'FeedsParser',
+          'class' => 'FeedsAvangateAffiliateParser',
+          'file' => 'FeedsAvangateAffiliateParser.inc',
+          'path' => drupal_get_path('module', 'feeds_social').'/parsers',
+        ),
+      );
+  }
+
+  // FeedsHTTPFetcher + gzip/zip support.
+  $info['FeedsCompressHTTPFetcher'] = array(
+    'name' => 'HTTP Fetcher with gzip/zip support',
+    'description' => 'Download compressed feeds and automatically uncompress them.',
+    'help' => 'Enable this if you want to download content from a URL that delivers the file compressd with gzip or zip.',
+    'handler' => array(
+      'parent' => 'FeedsHTTPFetcher', // This is the key name, not the class name.
+      'class' => 'FeedsCompressHTTPFetcher',
+      'file' => 'FeedsCompressHTTPFetcher.inc',
+      'path' => drupal_get_path('module', 'feeds_social').'/plugins',
+    ),
+  );
+
+  return $info;
+}
+
+/**
+ * Implementation of hook_node_info().
+ */
+//function feeds_social_node_info() {
+ // $items = array();
+/**
+  //Twitter search feed
+  $items['feed_twitter'] = array(
+    'name' => t('Feed (Twitter)'),
+    'module' => 'node',
+    'description' => t('Subscribe to Twitter feeds. Creates nodes of the content type "Feed item (Twitter)" from feed content.'),
+    'help' => t(''),
+    'has_title' => TRUE,
+    'title_label' => t('Title'),
+    'has_body' => FALSE,
+    'body_label' => t('Body'),
+    'locked' => TRUE,
+  );
+  $items['feed_item_twitter'] = array(
+    'name' => t('Feed item (Twitter)'),
+    'module' => 'node',
+    'description' => t('Feed Item for Twitter.'),
+    'help' => t('TODO: Create some nice text for the tweet submission form.'),
+    'has_title' => TRUE,
+    'title_label' => t('Tweet (txt)'),
+    'has_body' => TRUE,
+    'body_label' => t('Tweet (html)'),
+    'locked' => TRUE,
+  );
+    
+*/
+ // return $items;
+//}
+
+/**
+ * Implementation of hook_perm().
+ */
+function feeds_social_perm() {
+  return array('Create Social Feeds', 'Edit Social Feeds');
+}
+
+/*
+ * Implementation of hook_access().
+ */
+function feeds_social_access($op, $node, $account) {
+
+  if ($op == 'create') {
+    // Only users with permission to do so may create this node type.
+    return user_access('Create Social Feeds', $account);
+  }
+
+  // Users who create a node may edit or delete it later, assuming they have the
+  // necessary permissions.
+  if ($op == 'update' || $op == 'delete') {
+    if (user_access('Edit Social Feeds', $account) && ($account->uid == $node->uid)) {
+      return TRUE;
+    }
+  }
+}
+
+/**
+ * Implementation of hook_menu().
+ *
+ * Hook menu registers page callbacks with Drupal's central menu system.
+ */
+function feeds_social_menu() {
+  $items = array();
+
+  $items['admin/settings/feeds_social'] = array(
+    'title' => 'Feeds Social Settings',
+    'description' => 'Enable/disable the features you want to use.',
+    'page callback' => 'feeds_social_admin_settings',
+    'access callback' => 'user_access', // TRUE will give access to everyone
+    'access arguments' => array('administer site configuration')
+  );
+
+  return $items;
+}
+
+/**
+ * Page callback function for admin/settings/feeds_social.
+ */
+function feeds_social_admin_settings() {
+  return drupal_get_form('feeds_social_settings_form');
+}
+
+/**
+ * Form builder function for feeds_social_settings_form.
+ */
+function feeds_social_settings_form() {
+  $form = array();
+  $parsers = variable_get('feeds_social_parsers', array());
+  drupal_add_css(drupal_get_path('module', 'feeds_social') .'/css/admin.css');
+
+  $form['parsers_settings'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Social Parsers Settings'),
+  );
+
+  $form['parsers_settings']['install_status']['#tree'] = true;
+  
+  foreach($parsers as $parser_ => $info_){
+
+    $form['parsers_settings']['install_status'][$parser_] = array(
+      '#type' => 'radios',
+      '#title' => t($info_['name']),
+      '#default_value' => $info_['install_status'],
+      '#options' => array(t('Uninstalled'), t('Installed')),
+      '#attributes' => array('class' => ($info_['install_status']==1 ? 'installed' : '')),
+      '#tree' => true,
+    );
+  
+  }
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save settings'),
+  );
+
+  return $form;
+}
+
+/**
+ * Validation function for feeds_social_admin_settings.
+ */
+function feeds_social_settings_form_validate(&$form, &$form_state) {
+  // form_set_error() allows us to stop the form from being submitted, and display an error
+  // to the user on the page.
+  //if (empty($form_state['values']['test_field'])) {
+  //  form_set_error('feeds_social_test_field', t('You must enter a username.'));
+  //}
+}
+
+/**
+ * Submission function for feeds_social_admin_settings.
+ */
+function feeds_social_settings_form_submit(&$form, &$form_state) {
+  // Validation has already been handled -- we just need to save the results.
+  ///variable_set('feeds_social_cjcom_username', $form_state['values']['cjcom_username']);
+  ///variable_set('feeds_social_cjcom_password', $form_state['values']['cjcom_password']);
+  $parsers_old = variable_get('feeds_social_parsers', array());
+  //dpm($parsers_old, 'parsers_old');
+  //dpm($form_state['values'], 'form_state values:');
+
+  // Comparing new values with the new ones.
+  foreach($form_state['values']['install_status'] as $parser_name => $parser_status_new){
+        if((int)$parser_status_new!=(int)$parsers_old[$parser_name]['install_status']){
+            // Uninstall the module.
+            if((int)$parser_status_new==0){
+                //dpm($parser_name, 'parser_name');
+                //var_dump($parser_name);
+                _uninstall_parser($parser_name);
+            }
+            // Install the module.
+            if((int)$parser_status_new==1){
+                _install_parser($parser_name);
+            }
+        }
+  }
+
+  drupal_set_message('Succesfuly updated!');
+}
+
+
+/**
+* Implementation of hook_views_api().
+*/
+function feeds_social_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'feeds_social'),
+  );
+}
