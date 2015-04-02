@@ -36,16 +36,16 @@ class FeedsFacebookParser extends FeedsParser {
     foreach($xml->channel->item as $id => $obj_entry){    	
     	
     	//dsm($obj_entry->title);
-    	
-    	$items[] = array(
-    		'guid' 		=> (string)$obj_entry->guid,
-    		'title' 	=> str_replace("&#039;","'",(string)$obj_entry->title),
-    		'url'		=> (string)$obj_entry->link,    		    		
-    		'body'		=> (string)$obj_entry->description,
-    		'published'     => strtotime((string)$obj_entry->pubDate),
-    		'author'	=> (string)$obj_entry->author
-    	);
-    	
+    	if( !empty((string)$obj_entry->title) ){
+	    	$items[] = array(
+    			'guid' 		=> (string)$obj_entry->guid,
+    			'title' 	=> str_replace("&#039;","'",(string)$obj_entry->title),
+    			'url'		=> (string)$obj_entry->link,    		    		
+    			'body'		=> (string)$obj_entry->description,
+    			'published'     => strtotime((string)$obj_entry->pubDate),
+    			'author'	=> (string)$obj_entry->author
+    		);
+    	}
     	//break;
     	
     }
