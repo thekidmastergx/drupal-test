@@ -51,7 +51,7 @@ class FeedsFacebookParser extends FeedsParser {
     }
 
     // Populate the FeedsImportBatch object with the parsed results.
-    $batch->setTitle($obj_entry->title);
+    $batch->setTitle((string)$obj_entry->title);
     $batch->setItems($items);
   }
 
