@@ -39,7 +39,7 @@ class FeedsFacebookParser extends FeedsParser {
     	
     	$items[] = array(
     		'guid' 		=> (string)$obj_entry->guid,
-    		'title' 	=> (string)$obj_entry->title,
+    		'title' 	=> str_replace("&#039;","'",(string)$obj_entry->title),
     		'url'		=> (string)$obj_entry->link,    		    		
     		'body'		=> (string)$obj_entry->description,
     		'published'     => strtotime((string)$obj_entry->pubDate),
@@ -51,7 +51,7 @@ class FeedsFacebookParser extends FeedsParser {
     }
 
     // Populate the FeedsImportBatch object with the parsed results.
-    $batch->setTitle((string)$obj_entry->title);
+    $batch->setTitle(str_replace("&#039;","'",(string)$obj_entry->title));
     $batch->setItems($items);
   }
 
