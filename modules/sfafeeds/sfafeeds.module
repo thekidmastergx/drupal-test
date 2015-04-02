@@ -31,6 +31,17 @@ function sfafeeds_cron(){
   $node->status = 1;   // Published ? 1 : 0
   $node->language = 'en';
 
+  // [service]
+  // keyring(service) -> key
+  // authorize(service,key) -> token
+  // build_link(service,token) -> request
+  // fetch_post(request) -> json , xml
+  // decode_json(json) -> obj
+  // decode_xml(xml) -> obj
+  // model_data(obj) -> node
+  //  -> boolean
+  // node_save(node)
+
   if ($node = node_submit($node)) {
     node_save($node);
     drupal_set_message(t("Node ".$node->title." added correctly"));

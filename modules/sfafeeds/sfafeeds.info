@@ -1,3 +1,9 @@
 name = SFA Feeds
 description = Takes feeds from services and pools it into Content
 core = 6.x
+dependencies[] = content
+dependencies[] = text
+
+dependencies[] = ctools
+dependencies[] = date_api
+dependencies[] = date
