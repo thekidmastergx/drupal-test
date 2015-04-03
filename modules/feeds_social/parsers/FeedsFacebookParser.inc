@@ -36,7 +36,7 @@ class FeedsFacebookParser extends FeedsParser {
     foreach($xml->channel->item as $id => $obj_entry){    	
     	
     	//dsm($obj_entry->title);
-    	if( !empty((string)$obj_entry->title) ){
+    	if( ! empty( trim( (string)$obj_entry->title ) ) ){
 	    	$items[] = array(
     			'guid' 		=> (string)$obj_entry->guid,
     			'title' 	=> str_replace("&#039;","'",(string)$obj_entry->title),
