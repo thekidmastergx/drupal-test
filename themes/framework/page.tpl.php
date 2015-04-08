@@ -14,6 +14,104 @@
   <!--[if lt IE 9]>
     <script src="http://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
   <![endif]-->
+  <style>
+  .content-font,
+  ,p{
+    font-family: georgia, arial, helvetica, sans-serif;
+    font-size: 12px;
+    color: #000000;
+  }
+
+  .link-font,
+  a{
+    font-family: georgia, arial, helvetica, sans-serif;
+    font-size: 12px;
+    color: #285aaf;
+    text-decoration: none;
+  }
+  .title-font,
+  .blog-post-title span,
+  .sidebar-widget-title span {
+    font-family: georgia, arial, helvetica, sans-serif;
+    font-size: 18px;
+    color: #285aaf;
+    font-weight: bold
+  }
+  .subtitle-font,
+  .blog-post-date {
+    font-family: georgia, arial, helvetica, sans-serif;
+    font-size: 12px;
+    color: #999999
+  }
+
+
+  .sidebar-widget {
+    padding: 10px;
+  }
+
+  .sidebar-widget-title {
+    background-color: #F5F5F5;
+    padding: 5px;
+  }
+
+  .blog-post {
+    display: inline-block;
+    margin-bottom: 12px;
+    padding: 10px;
+  }
+
+  .blog-post-title {
+    margin-bottom: 8px;
+  }
+
+  .blog-post-image {
+    float: right;
+    margin-left: 10px;
+  }
+
+  body,
+  p {
+    margin: 0;
+  }
+  hr{
+    min-height:1px;
+    color:#999999;
+    border-style:solid;
+    border-color:#999999;
+    border-width:1px 0px 0px 0px;
+    margin: 5px 15px;
+    padding: 5px 10px;
+  }
+  div#main-card{
+    width: 750px;
+    border: 1px solid #333333;
+    vertical-align: top;
+    margin: 0 auto;
+  }
+  header#banner-card{
+    padding: 10px;
+    background-color: #333333;
+  }
+  div#main-container{
+    display: inline-flex;
+  }
+  aside#sidebar-area{
+    padding: 10px;
+    flex: 0 0 300px;
+  }
+  section#blog-area{
+    padding: 10px;
+    flex: 1 100%;
+  }
+  footer#ending-blurb{}
+  footer#ending-blurb .message{
+    text-align:center;
+  }
+  footer#ending-blurb .banner{
+    padding: 5px;
+    background-color: #333333;
+  }
+  </style>
 </head>
 
 <body class="<?php print $body_classes; ?>">
@@ -26,6 +124,35 @@
         <a href="#navigation" class="element-invisible element-focusable"><?php print t('Skip to navigation'); ?></a>
       <?php endif; ?>
     </div>
+
+    <header id="banner-card" class="banner">
+      <table width="100%" cellpadding="5" cellspacing="0" border="0">
+        <tbody>
+          <tr>
+            <?php if ($logo): ?>
+              <td width="25%" rowspan="2" valign="top">
+                <a href="<?php print $front_page; ?>" title="<?php print t('Home'); ?>" target="_blank">
+                  <img src="<?php print $logo; ?>" alt="<?php print t('Home'); ?>">
+                </a>
+              </td>
+            <?php endif; ?>
+            <?php if ($site_name): ?>
+            <td>
+              <span style="font-family:georgia,arial,helvetica,sans-serif;font-size:28px;color:#ffffff;font-weight:bold"><?php print $site_name; ?></span>
+            </td>
+            <?php endif; ?>
+          </tr>
+          <?php if ($site_slogan): ?>
+          <tr>
+            <td colspan="2">
+              <hr>
+              <span style="font-family:georgia,arial,helvetica,sans-serif;font-size:13px;color:#ffffff;font-weight:bold"><?php print $site_slogan; ?></span>
+            </td>
+          </tr>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </header>
 
     <header id="header" role="banner" class="clearfix">
       <?php if ($logo): ?>
@@ -45,17 +172,17 @@
           <?php endif; ?>
         </hgroup>
       <?php endif; ?>
-      
+
       <?php print $header; ?>
-      
+
       <?php if ($search_box): ?><?php print $search_box ?><?php endif; ?>
-      
+
 	  <?php if ($primary_links || $secondary_links || !empty($navigation)): ?>
         <nav id="navigation" role="navigation" class="clearfix ">
           <?php if (!empty($navigation)): ?> <!--if block in $navigation region, override $primary_links and $secondary_links-->
             <?php print $navigation ?>
           <?php endif; ?>
-          <?php if (empty($navigation)): ?> 
+          <?php if (empty($navigation)): ?>
             <?php if (isset($primary_links)) : ?>
 			  <?php print theme(array('links__system_main_menu', 'links'), $primary_links,
                 array(
